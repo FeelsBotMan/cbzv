@@ -69,55 +69,88 @@ class CBZReaderProvider with ChangeNotifier {
     _pages = [];
     _currentPageIndex = 0;
 
-    final bytes = await File(file.path).readAsBytes();
-    final archive = ZipDecoder().decodeBytes(bytes);
+    try {
+      final bytes = await File(file.path).readAsBytes();
+      final archive = ZipDecoder().decodeBytes(bytes);
 
-    _pages = archive.files
-        .where((file) =>
-            file.isFile &&
-            ['.jpg', '.jpeg', '.png', '.gif']
-                .contains(path.extension(file.name).toLowerCase()))
-        .map((file) {
-      final tempDir = Directory.systemTemp.createTempSync();
-      final tempFile = File('${tempDir.path}/${file.name}');
-      tempFile.writeAsBytesSync(file.content as List<int>);
-      return CBZPage(
-        imagePath: tempFile.path,
-        pageNumber: _pages.length + 1,
-      );
-    }).toList();
+      final tempDir = await getTemporaryDirectory();
+      final cbzTempDir = await Directory(
+              '${tempDir.path}/cbz_temp/${path.basenameWithoutExtension(file.path)}')
+          .create(recursive: true);
 
-    _pages.sort((a, b) => a.imagePath.compareTo(b.imagePath));
+      final futures = archive.files
+          .where((file) =>
+              file.isFile &&
+              ['.jpg', '.jpeg', '.png', '.gif']
+                  .contains(path.extension(file.name).toLowerCase()))
+          .map((file) async {
+        final tempFilePath = path.join(cbzTempDir.path, file.name);
+        final tempFileDir = Directory(path.dirname(tempFilePath));
 
-    notifyListeners();
+        try {
+          await tempFileDir.create(recursive: true);
+          final tempFile = File(tempFilePath);
+          await tempFile.writeAsBytes(file.content as List<int>);
+          return CBZPage(
+            imagePath: tempFile.path,
+            pageNumber: _pages.length + 1,
+          );
+        } catch (e) {
+          print('Error writing file ${file.name}: $e');
+          return null;
+        }
+      });
+
+      final results = await Future.wait(futures);
+      _pages = results.whereType<CBZPage>().toList();
+      _pages.sort((a, b) => a.imagePath.compareTo(b.imagePath));
+
+      notifyListeners();
+    } catch (e) {
+      print('Error loading CBZ file: $e');
+    }
   }
 
   void nextPage() {
     if (_currentPageIndex < _pages.length - 1) {
       _currentPageIndex++;
+      print('Next page. Current page index: $_currentPageIndex'); // 디버그 출력 추가
       notifyListeners();
+    } else {
+      print('Already at the last page'); // 디버그 출력 추가
     }
   }
 
   void previousPage() {
     if (_currentPageIndex > 0) {
       _currentPageIndex--;
+      print(
+          'Previous page. Current page index: $_currentPageIndex'); // 디버그 출력 추가
       notifyListeners();
+    } else {
+      print('Already at the first page'); // 디버그 출력 추가
     }
   }
 
   void goToPage(int pageIndex) {
     if (pageIndex >= 0 && pageIndex < _pages.length) {
       _currentPageIndex = pageIndex;
+      print('Go to page $pageIndex'); // 디버그 출력 추가
       notifyListeners();
+    } else {
+      print('Invalid page index: $pageIndex'); // 디버그 출력 추가
     }
   }
 
   @override
   void dispose() {
     // 임시 파일들 정리
-    for (var page in _pages) {
-      File(page.imagePath).deleteSync();
+    if (_currentFile != null) {
+      final tempDir = Directory(
+          '${Directory.systemTemp.path}/cbz_temp/${path.basenameWithoutExtension(_currentFile!.path)}');
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
     }
     super.dispose();
   }
