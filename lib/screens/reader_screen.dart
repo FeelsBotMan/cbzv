@@ -16,6 +16,7 @@ class ReaderScreen extends StatefulWidget {
 }
 
 class _ReaderScreenState extends State<ReaderScreen> {
+  static const platform = MethodChannel('cbzv/volume');
   late FocusNode _focusNode;
   late PageController _pageController;
 
@@ -24,45 +25,27 @@ class _ReaderScreenState extends State<ReaderScreen> {
     super.initState();
     _focusNode = FocusNode();
     _pageController = PageController();
-    SystemChannels.platform.setMethodCallHandler(_handleSystemKeyEvent);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
+    });
+
+    platform.setMethodCallHandler((call) async {
+      if (call.method == 'handleVolumeKey') {
+        String direction = call.arguments;
+        if (direction == "up") {
+          _changePage(1);
+        } else if (direction == "down") {
+          _changePage(-1);
+        }
+      }
     });
   }
 
   @override
   void dispose() {
-    SystemChannels.platform.setMethodCallHandler(null);
     _focusNode.dispose();
     _pageController.dispose();
     super.dispose();
-  }
-
-  Future<dynamic> _handleSystemKeyEvent(MethodCall call) async {
-    if (call.method == 'SystemChrome.keyEvent') {
-      final Map<String, dynamic> args = call.arguments;
-      final String type = args['type'];
-      final int keyCode = args['keyCode'];
-
-      if (type == 'keydown') {
-        if (keyCode == 24) {
-          // Volume Up
-          print('Volume Up pressed');
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _changePage(1);
-          });
-          return true;
-        } else if (keyCode == 25) {
-          // Volume Down
-          print('Volume Down pressed');
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _changePage(-1);
-          });
-          return true;
-        }
-      }
-    }
-    return null; // Let other handlers deal with the event
   }
 
   void _changePage(int delta) {
