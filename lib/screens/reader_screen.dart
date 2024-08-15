@@ -9,7 +9,7 @@ import 'package:cbzv/providers/cbz_providers.dart';
 import 'package:cbzv/models/cbz_model.dart';
 
 class ReaderScreen extends StatefulWidget {
-  const ReaderScreen({Key? key}) : super(key: key);
+  const ReaderScreen({super.key});
 
   @override
   _ReaderScreenState createState() => _ReaderScreenState();
@@ -50,19 +50,18 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   void _changePage(int delta) {
     if (!mounted) return;
-    setState(() {
-      final readerProvider =
-          Provider.of<CBZReaderProvider>(context, listen: false);
-      final newIndex = readerProvider.currentPageIndex + delta;
-      if (newIndex >= 0 && newIndex < readerProvider.pages.length) {
-        readerProvider.goToPage(newIndex);
+    final readerProvider =
+        Provider.of<CBZReaderProvider>(context, listen: false);
+    final newIndex = readerProvider.currentPageIndex + delta;
+    if (newIndex >= 0 && newIndex < readerProvider.pages.length) {
+      readerProvider.goToPage(newIndex).then((_) {
         _pageController.animateToPage(
           newIndex,
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeInOut,
         );
-      }
-    });
+      });
+    }
   }
 
   @override
@@ -116,7 +115,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 }
               },
               child: GestureDetector(
-                onTapUp: (details) => _handleTap(context, details),
+                //onTapUp: (details) => _handleTap(context, details),
                 child: PhotoViewGallery.builder(
                   itemCount: readerProvider.pages.length,
                   builder: (context, index) {
@@ -132,11 +131,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
                       const BoxDecoration(color: Colors.black),
                   pageController: _pageController,
                   onPageChanged: (index) {
-                    print('Page changed to $index');
                     if (index != readerProvider.currentPageIndex) {
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        readerProvider.goToPage(index);
-                      });
+                      readerProvider.goToPage(index);
                     }
                   },
                 ),
@@ -167,9 +163,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
             return ListTile(
               title: Text('Page ${index + 1}'),
               onTap: () {
-                readerProvider.goToPage(index);
-                _pageController.jumpToPage(index);
-                Navigator.pop(context);
+                readerProvider.goToPage(index).then((_) {
+                  _pageController.jumpToPage(index);
+                  Navigator.pop(context);
+                });
               },
             );
           },

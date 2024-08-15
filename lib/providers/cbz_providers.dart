@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:archive/archive.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cbzv/models/cbz_model.dart';
 
 class CBZLibraryProvider with ChangeNotifier {
@@ -67,9 +68,11 @@ class CBZReaderProvider with ChangeNotifier {
   Future<void> loadCBZFile(CBZFile file) async {
     _currentFile = file;
     _pages = [];
-    _currentPageIndex = 0;
 
     try {
+      final prefs = await SharedPreferences.getInstance();
+      _currentPageIndex = prefs.getInt('lastPage_${file.path}') ?? 0;
+
       final bytes = await File(file.path).readAsBytes();
       final archive = ZipDecoder().decodeBytes(bytes);
 
@@ -111,35 +114,24 @@ class CBZReaderProvider with ChangeNotifier {
     }
   }
 
-  void nextPage() {
-    if (_currentPageIndex < _pages.length - 1) {
-      _currentPageIndex++;
-      print('Next page. Current page index: $_currentPageIndex'); // 디버그 출력 추가
+  Future<void> goToPage(int index) async {
+    if (index >= 0 && index < _pages.length) {
+      _currentPageIndex = index;
       notifyListeners();
-    } else {
-      print('Already at the last page'); // 디버그 출력 추가
+
+      if (_currentFile != null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setInt('lastPage_${_currentFile!.path}', index);
+      }
     }
+  }
+
+  void nextPage() {
+    goToPage(_currentPageIndex + 1);
   }
 
   void previousPage() {
-    if (_currentPageIndex > 0) {
-      _currentPageIndex--;
-      print(
-          'Previous page. Current page index: $_currentPageIndex'); // 디버그 출력 추가
-      notifyListeners();
-    } else {
-      print('Already at the first page'); // 디버그 출력 추가
-    }
-  }
-
-  void goToPage(int pageIndex) {
-    if (pageIndex >= 0 && pageIndex < _pages.length) {
-      _currentPageIndex = pageIndex;
-      print('Go to page $pageIndex'); // 디버그 출력 추가
-      notifyListeners();
-    } else {
-      print('Invalid page index: $pageIndex'); // 디버그 출력 추가
-    }
+    goToPage(_currentPageIndex - 1);
   }
 
   @override
