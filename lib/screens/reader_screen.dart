@@ -16,6 +16,7 @@ class ReaderScreen extends StatefulWidget {
 
 class _ReaderScreenState extends State<ReaderScreen> {
   static const platform = MethodChannel('cbzv/volume');
+  final GlobalKey _photoViewKey = GlobalKey();
   late FocusNode _focusNode;
   late PageController _pageController;
   late CBZReaderProvider _readerProvider;
@@ -24,8 +25,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
   double _baseScale = 1.0;
   final double _minScale = 1.0;
   final double _maxScale = 3.0;
+  late Size _screenSize;
+  int _pointerCount = 0;
   double _dragStartX = 0.0;
   bool _isDragging = false;
+  bool _isZooming = false;
 
   @override
   void initState() {
@@ -44,6 +48,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _screenSize = MediaQuery.of(context).size;
+  }
+
+  @override
   void dispose() {
     _focusNode.dispose();
     _pageController.dispose();
@@ -55,9 +65,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (call.method == 'handleVolumeKey') {
       String direction = call.arguments;
       if (direction == "up") {
-        _changePage(-1); // Changed to previous page
-      } else if (direction == "down") {
         _changePage(1); // Changed to next page
+      } else if (direction == "down") {
+        _changePage(-1); // Changed to previous page
       }
     }
   }
@@ -132,108 +142,57 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   Widget _buildBody(CBZReaderProvider readerProvider) {
-    return GestureDetector(
-      onScaleStart: _handleScaleStart,
-      onScaleUpdate: (details) => _handleScaleUpdate(details, readerProvider),
-      onScaleEnd: _handleScaleEnd,
-      child: Stack(
-        children: [
-          _buildPhotoViewGallery(readerProvider),
-          if (!_isFullScreen) _buildPageIndicator(readerProvider),
-        ],
+    return Listener(
+      onPointerDown: _handlePointerDown,
+      onPointerMove: _handlePointerMove,
+      onPointerUp: _handlePointerUp,
+      onPointerCancel: _handlePointerCancel,
+      child: GestureDetector(
+        onScaleStart: _handleScaleStart,
+        onScaleUpdate: (details) => _handleScaleUpdate(details, readerProvider),
+        onScaleEnd: _handleScaleEnd,
+        child: Stack(
+          children: [
+            _buildPhotoViewGallery(readerProvider),
+            if (!_isFullScreen) _buildPageIndicator(readerProvider),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildPhotoViewGallery(CBZReaderProvider readerProvider) {
-    return Stack(
-      children: [
-        PhotoViewGallery.builder(
-          itemCount: readerProvider.pages.length,
-          builder: (context, index) {
-            return PhotoViewGalleryPageOptions(
-              imageProvider:
-                  FileImage(File(readerProvider.pages[index].imagePath)),
-              minScale: _minScale,
-              maxScale: _maxScale,
-              initialScale: readerProvider.currentScale,
-              heroAttributes: PhotoViewHeroAttributes(tag: "page_$index"),
-              errorBuilder: (context, error, stackTrace) {
-                return Center(child: Text('이미지 로드 실패: $error'));
-              },
-              onScaleEnd: (context, details, controllerValue) {
-                readerProvider.setScale(controllerValue.scale ?? 1.0);
-              },
-            );
+    return PhotoViewGallery.builder(
+      key: _photoViewKey,
+      itemCount: readerProvider.pages.length,
+      builder: (context, index) {
+        return PhotoViewGalleryPageOptions(
+          imageProvider: FileImage(File(readerProvider.pages[index].imagePath)),
+          minScale: _minScale,
+          maxScale: _maxScale,
+          initialScale: readerProvider.currentScale,
+          heroAttributes: PhotoViewHeroAttributes(tag: "page_$index"),
+          errorBuilder: (context, error, stackTrace) {
+            return Center(child: Text('이미지 로드 실패: $error'));
           },
-          loadingBuilder: (context, event) => Center(
-            child: CircularProgressIndicator(
-              value: event == null
-                  ? 0
-                  : event.cumulativeBytesLoaded / event.expectedTotalBytes!,
-            ),
-          ),
-          backgroundDecoration: const BoxDecoration(color: Colors.black),
-          pageController: _pageController,
-          onPageChanged: (index) {
-            if (index != readerProvider.currentPageIndex) {
-              readerProvider.goToPage(index);
-            }
+          onScaleEnd: (context, details, controllerValue) {
+            readerProvider.setScale(controllerValue.scale ?? 1.0);
           },
-        ),
-        _buildGestureAreas(readerProvider),
-      ],
-    );
-  }
-
-  Widget _buildGestureAreas(CBZReaderProvider readerProvider) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final height = constraints.maxHeight;
-
-        return Stack(
-          children: [
-            // Left area for previous page
-            Positioned(
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: width * 0.2,
-              child: GestureDetector(
-                onTap: () => _changePage(-1),
-                behavior: HitTestBehavior.translucent,
-              ),
-            ),
-            // Right area for next page
-            Positioned(
-              right: 0,
-              top: 0,
-              bottom: 0,
-              width: width * 0.2,
-              child: GestureDetector(
-                onTap: () => _changePage(1),
-                behavior: HitTestBehavior.translucent,
-              ),
-            ),
-            // Center area for toggling UI
-            Positioned(
-              left: width * 0.2,
-              right: width * 0.2,
-              top: 0,
-              bottom: 0,
-              child: GestureDetector(
-                onTap: _toggleFullScreen,
-                onDoubleTap: () {
-                  // Reset zoom or implement custom double-tap behavior
-                  readerProvider.setScale(_minScale);
-                },
-                onLongPress: _toggleFullScreen,
-                behavior: HitTestBehavior.translucent,
-              ),
-            ),
-          ],
         );
+      },
+      loadingBuilder: (context, event) => Center(
+        child: CircularProgressIndicator(
+          value: event == null
+              ? 0
+              : event.cumulativeBytesLoaded / event.expectedTotalBytes!,
+        ),
+      ),
+      backgroundDecoration: const BoxDecoration(color: Colors.black),
+      pageController: _pageController,
+      onPageChanged: (index) {
+        if (index != readerProvider.currentPageIndex) {
+          readerProvider.goToPage(index);
+        }
       },
     );
   }
@@ -270,37 +229,73 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
-  void _handleScaleStart(ScaleStartDetails details) {
-    _baseScale = _currentScale;
-    if (details.pointerCount == 1) {
-      _dragStartX = details.localFocalPoint.dx;
+  void _handlePointerDown(PointerDownEvent event) {
+    _dragStartX = event.position.dx;
+    _isDragging = false;
+    _pointerCount++;
+    if (_pointerCount > 1) {
+      _isZooming = true;
+    }
+  }
+
+  void _handlePointerMove(PointerMoveEvent event) {
+    double dragDistance = event.position.dx - _dragStartX;
+    if (_pointerCount == 1 &&
+        !_isZooming &&
+        !_isDragging &&
+        dragDistance.abs() > 50) {
+      _isDragging = true;
+      if (dragDistance > 0) {
+        _changePage(-1);
+      } else {
+        _changePage(1);
+      }
+    }
+  }
+
+  void _handlePointerUp(PointerUpEvent event) {
+    _pointerCount--;
+    if (_pointerCount == 0) {
+      if (!_isDragging && !_isZooming) {
+        final tapPosition = event.position;
+        final screenWidth = _screenSize.width;
+
+        if (tapPosition.dx < screenWidth * 0.2) {
+          _changePage(-1);
+        } else if (tapPosition.dx > screenWidth * 0.8) {
+          _changePage(1);
+        } else {
+          _toggleFullScreen();
+        }
+      }
+      _isZooming = false;
       _isDragging = false;
     }
   }
 
+  void _handlePointerCancel(PointerCancelEvent event) {
+    _pointerCount = 0;
+    _isZooming = false;
+    _isDragging = false;
+  }
+
+  void _handleScaleStart(ScaleStartDetails details) {
+    _baseScale = _currentScale;
+  }
+
   void _handleScaleUpdate(
       ScaleUpdateDetails details, CBZReaderProvider readerProvider) {
-    if (details.pointerCount == 2) {
+    if (_pointerCount == 2) {
       setState(() {
         _currentScale =
             (_baseScale * details.scale).clamp(_minScale, _maxScale);
         readerProvider.setScale(_currentScale);
       });
-    } else if (details.pointerCount == 1) {
-      double dragDistance = details.localFocalPoint.dx - _dragStartX;
-      if (!_isDragging && dragDistance.abs() > 50) {
-        _isDragging = true;
-        if (dragDistance > 0) {
-          _changePage(-1);
-        } else {
-          _changePage(1);
-        }
-      }
     }
   }
 
   void _handleScaleEnd(ScaleEndDetails details) {
-    _isDragging = false;
+    // 핀치 줌이 끝난 후 처리
   }
 
   void _showPageList(BuildContext context, CBZReaderProvider readerProvider) {
