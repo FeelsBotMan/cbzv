@@ -58,20 +58,28 @@ class CBZReaderProvider with ChangeNotifier {
   CBZFile? _currentFile;
   List<CBZPage> _pages = [];
   int _currentPageIndex = 0;
+  double _currentScale = 1.0;
+  bool _isLoading = false;
 
   CBZFile? get currentFile => _currentFile;
   List<CBZPage> get pages => List.unmodifiable(_pages);
   int get currentPageIndex => _currentPageIndex;
+  double get currentScale => _currentScale;
+  bool get isLoading => _isLoading;
   CBZPage? get currentPage =>
       _currentPageIndex < _pages.length ? _pages[_currentPageIndex] : null;
 
   Future<void> loadCBZFile(CBZFile file) async {
+    _isLoading = true;
+    notifyListeners();
+
     _currentFile = file;
     _pages = [];
 
     try {
       final prefs = await SharedPreferences.getInstance();
       _currentPageIndex = prefs.getInt('lastPage_${file.path}') ?? 0;
+      _currentScale = prefs.getDouble('lastScale_${file.path}') ?? 1.0;
 
       final bytes = await File(file.path).readAsBytes();
       final archive = ZipDecoder().decodeBytes(bytes);
@@ -108,9 +116,12 @@ class CBZReaderProvider with ChangeNotifier {
       _pages = results.whereType<CBZPage>().toList();
       _pages.sort((a, b) => a.imagePath.compareTo(b.imagePath));
 
+      _isLoading = false;
       notifyListeners();
     } catch (e) {
       print('Error loading CBZ file: $e');
+      _isLoading = false;
+      notifyListeners();
     }
   }
 
@@ -123,6 +134,16 @@ class CBZReaderProvider with ChangeNotifier {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setInt('lastPage_${_currentFile!.path}', index);
       }
+    }
+  }
+
+  Future<void> setScale(double scale) async {
+    _currentScale = scale;
+    notifyListeners();
+
+    if (_currentFile != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble('lastScale_${_currentFile!.path}', scale);
     }
   }
 

@@ -18,48 +18,86 @@ class ReaderScreen extends StatefulWidget {
 class _ReaderScreenState extends State<ReaderScreen> {
   static const platform = MethodChannel('cbzv/volume');
   late FocusNode _focusNode;
-  late PageController _pageController;
+  PageController? _pageController;
+  CBZReaderProvider? _readerProvider;
 
   @override
   void initState() {
     super.initState();
     _focusNode = FocusNode();
-    _pageController = PageController();
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
+      _initializeReader();
     });
 
     platform.setMethodCallHandler((call) async {
       if (call.method == 'handleVolumeKey') {
         String direction = call.arguments;
         if (direction == "up") {
-          _changePage(1);
-        } else if (direction == "down") {
           _changePage(-1);
+        } else if (direction == "down") {
+          _changePage(1);
         }
       }
     });
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _readerProvider = Provider.of<CBZReaderProvider>(context, listen: false);
+  }
+
+  void _initializeReader() {
+    _readerProvider?.addListener(_onReaderProviderChanged);
+    if (_readerProvider != null && !_readerProvider!.isLoading) {
+      _initPageController();
+    }
+  }
+
+  void _onReaderProviderChanged() {
+    if (_readerProvider != null &&
+        !_readerProvider!.isLoading &&
+        _pageController == null) {
+      _initPageController();
+    }
+  }
+
+  void _initPageController() {
+    if (_readerProvider != null && _readerProvider!.pages.isNotEmpty) {
+      setState(() {
+        _pageController =
+            PageController(initialPage: _readerProvider!.currentPageIndex);
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_pageController != null && _pageController!.hasClients) {
+          _pageController!.jumpToPage(_readerProvider!.currentPageIndex);
+        }
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _focusNode.dispose();
-    _pageController.dispose();
+    _pageController?.dispose();
+    _readerProvider?.removeListener(_onReaderProviderChanged);
     super.dispose();
   }
 
   void _changePage(int delta) {
-    if (!mounted) return;
-    final readerProvider =
-        Provider.of<CBZReaderProvider>(context, listen: false);
-    final newIndex = readerProvider.currentPageIndex + delta;
-    if (newIndex >= 0 && newIndex < readerProvider.pages.length) {
-      readerProvider.goToPage(newIndex).then((_) {
-        _pageController.animateToPage(
-          newIndex,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
-        );
+    if (!mounted || _pageController == null || _readerProvider == null) return;
+    final newIndex = _readerProvider!.currentPageIndex + delta;
+    if (newIndex >= 0 && newIndex < _readerProvider!.pages.length) {
+      _readerProvider!.goToPage(newIndex).then((_) {
+        if (_pageController != null && _pageController!.hasClients) {
+          _pageController!.animateToPage(
+            newIndex,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+          );
+        }
       });
     }
   }
@@ -68,15 +106,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Widget build(BuildContext context) {
     return Consumer<CBZReaderProvider>(
       builder: (context, readerProvider, child) {
-        print(
-            'Building ReaderScreen. Current page index: ${readerProvider.currentPageIndex}');
-
         final CBZFile? currentFile = readerProvider.currentFile;
 
-        if (currentFile == null) {
+        if (currentFile == null ||
+            readerProvider.isLoading ||
+            _pageController == null) {
           return Scaffold(
             appBar: AppBar(title: const Text('CBZ 리더')),
-            body: const Center(child: Text('선택된 CBZ 파일이 없습니다.')),
+            body: const Center(child: CircularProgressIndicator()),
           );
         }
 
@@ -94,12 +131,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
             focusNode: _focusNode,
             onKeyEvent: (KeyEvent event) {
               if (event is KeyDownEvent) {
-                print('Key pressed: ${event.logicalKey}');
                 if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-                  print('Right arrow pressed');
                   _changePage(1);
                 } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-                  print('Left arrow pressed');
                   _changePage(-1);
                 }
               }
@@ -114,43 +148,46 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   }
                 }
               },
-              child: GestureDetector(
-                //onTapUp: (details) => _handleTap(context, details),
-                child: PhotoViewGallery.builder(
-                  itemCount: readerProvider.pages.length,
-                  builder: (context, index) {
-                    return PhotoViewGalleryPageOptions(
-                      imageProvider: FileImage(
-                          File(readerProvider.pages[index].imagePath)),
-                      minScale: PhotoViewComputedScale.contained,
-                      maxScale: PhotoViewComputedScale.covered * 2,
-                    );
-                  },
-                  scrollPhysics: const ClampingScrollPhysics(),
-                  backgroundDecoration:
-                      const BoxDecoration(color: Colors.black),
-                  pageController: _pageController,
-                  onPageChanged: (index) {
-                    if (index != readerProvider.currentPageIndex) {
-                      readerProvider.goToPage(index);
-                    }
-                  },
+              child: PhotoViewGallery.builder(
+                itemCount: readerProvider.pages.length,
+                builder: (context, index) {
+                  return PhotoViewGalleryPageOptions(
+                    imageProvider:
+                        FileImage(File(readerProvider.pages[index].imagePath)),
+                    minScale: PhotoViewComputedScale.contained,
+                    maxScale: PhotoViewComputedScale.covered * 2,
+                    initialScale: readerProvider.currentScale,
+                    heroAttributes: PhotoViewHeroAttributes(tag: "page_$index"),
+                    onScaleEnd: (context, details, controllerValue) {
+                      readerProvider.setScale(controllerValue.scale ?? 1.0);
+                    },
+                  );
+                },
+                loadingBuilder: (context, event) => Center(
+                  child: Container(
+                    width: 20.0,
+                    height: 20.0,
+                    child: CircularProgressIndicator(
+                      value: event == null
+                          ? 0
+                          : event.cumulativeBytesLoaded /
+                              event.expectedTotalBytes!,
+                    ),
+                  ),
                 ),
+                backgroundDecoration: BoxDecoration(color: Colors.black),
+                pageController: _pageController!,
+                onPageChanged: (index) {
+                  if (index != readerProvider.currentPageIndex) {
+                    readerProvider.goToPage(index);
+                  }
+                },
               ),
             ),
           ),
         );
       },
     );
-  }
-
-  void _handleTap(BuildContext context, TapUpDetails details) {
-    final double screenWidth = MediaQuery.of(context).size.width;
-    if (details.globalPosition.dx < screenWidth / 3) {
-      _changePage(-1);
-    } else if (details.globalPosition.dx > 2 * screenWidth / 3) {
-      _changePage(1);
-    }
   }
 
   void _showPageList(BuildContext context, CBZReaderProvider readerProvider) {
@@ -164,7 +201,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
               title: Text('Page ${index + 1}'),
               onTap: () {
                 readerProvider.goToPage(index).then((_) {
-                  _pageController.jumpToPage(index);
+                  if (_pageController != null && _pageController!.hasClients) {
+                    _pageController!.jumpToPage(index);
+                  }
                   Navigator.pop(context);
                 });
               },
