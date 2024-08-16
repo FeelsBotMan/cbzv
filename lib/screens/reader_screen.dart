@@ -26,7 +26,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
   final double _maxScale = 3.0;
   double _dragStartX = 0.0;
   bool _isDragging = false;
-  bool _isLongPressing = false;
 
   @override
   void initState() {
@@ -137,17 +136,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
       onScaleStart: _handleScaleStart,
       onScaleUpdate: (details) => _handleScaleUpdate(details, readerProvider),
       onScaleEnd: _handleScaleEnd,
-      onLongPressStart: (_) {
-        _isLongPressing = true;
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (_isLongPressing) {
-            _toggleFullScreen();
-          }
-        });
-      },
-      onLongPressEnd: (_) {
-        _isLongPressing = false;
-      },
       child: Stack(
         children: [
           _buildPhotoViewGallery(readerProvider),
@@ -158,36 +146,94 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   Widget _buildPhotoViewGallery(CBZReaderProvider readerProvider) {
-    return PhotoViewGallery.builder(
-      itemCount: readerProvider.pages.length,
-      builder: (context, index) {
-        return PhotoViewGalleryPageOptions(
-          imageProvider: FileImage(File(readerProvider.pages[index].imagePath)),
-          minScale: _minScale,
-          maxScale: _maxScale,
-          initialScale: readerProvider.currentScale,
-          heroAttributes: PhotoViewHeroAttributes(tag: "page_$index"),
-          errorBuilder: (context, error, stackTrace) {
-            return Center(child: Text('이미지 로드 실패: $error'));
+    return Stack(
+      children: [
+        PhotoViewGallery.builder(
+          itemCount: readerProvider.pages.length,
+          builder: (context, index) {
+            return PhotoViewGalleryPageOptions(
+              imageProvider:
+                  FileImage(File(readerProvider.pages[index].imagePath)),
+              minScale: _minScale,
+              maxScale: _maxScale,
+              initialScale: readerProvider.currentScale,
+              heroAttributes: PhotoViewHeroAttributes(tag: "page_$index"),
+              errorBuilder: (context, error, stackTrace) {
+                return Center(child: Text('이미지 로드 실패: $error'));
+              },
+              onScaleEnd: (context, details, controllerValue) {
+                readerProvider.setScale(controllerValue.scale ?? 1.0);
+              },
+            );
           },
-          onScaleEnd: (context, details, controllerValue) {
-            readerProvider.setScale(controllerValue.scale ?? 1.0);
+          loadingBuilder: (context, event) => Center(
+            child: CircularProgressIndicator(
+              value: event == null
+                  ? 0
+                  : event.cumulativeBytesLoaded / event.expectedTotalBytes!,
+            ),
+          ),
+          backgroundDecoration: const BoxDecoration(color: Colors.black),
+          pageController: _pageController,
+          onPageChanged: (index) {
+            if (index != readerProvider.currentPageIndex) {
+              readerProvider.goToPage(index);
+            }
           },
-        );
-      },
-      loadingBuilder: (context, event) => Center(
-        child: CircularProgressIndicator(
-          value: event == null
-              ? 0
-              : event.cumulativeBytesLoaded / event.expectedTotalBytes!,
         ),
-      ),
-      backgroundDecoration: const BoxDecoration(color: Colors.black),
-      pageController: _pageController,
-      onPageChanged: (index) {
-        if (index != readerProvider.currentPageIndex) {
-          readerProvider.goToPage(index);
-        }
+        _buildGestureAreas(readerProvider),
+      ],
+    );
+  }
+
+  Widget _buildGestureAreas(CBZReaderProvider readerProvider) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final height = constraints.maxHeight;
+
+        return Stack(
+          children: [
+            // Left area for previous page
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: width * 0.2,
+              child: GestureDetector(
+                onTap: () => _changePage(-1),
+                behavior: HitTestBehavior.translucent,
+              ),
+            ),
+            // Right area for next page
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              width: width * 0.2,
+              child: GestureDetector(
+                onTap: () => _changePage(1),
+                behavior: HitTestBehavior.translucent,
+              ),
+            ),
+            // Center area for toggling UI
+            Positioned(
+              left: width * 0.2,
+              right: width * 0.2,
+              top: 0,
+              bottom: 0,
+              child: GestureDetector(
+                onTap: _toggleFullScreen,
+                onDoubleTap: () {
+                  // Reset zoom or implement custom double-tap behavior
+                  readerProvider.setScale(_minScale);
+                },
+                onLongPress: _toggleFullScreen,
+                behavior: HitTestBehavior.translucent,
+              ),
+            ),
+          ],
+        );
       },
     );
   }
