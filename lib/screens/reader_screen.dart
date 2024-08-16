@@ -163,12 +163,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
       builder: (context, index) {
         return PhotoViewGalleryPageOptions(
           imageProvider: FileImage(File(readerProvider.pages[index].imagePath)),
-          minScale: PhotoViewComputedScale.contained,
-          maxScale: PhotoViewComputedScale.covered * 2,
+          minScale: _minScale,
+          maxScale: _maxScale,
           initialScale: readerProvider.currentScale,
           heroAttributes: PhotoViewHeroAttributes(tag: "page_$index"),
           errorBuilder: (context, error, stackTrace) {
             return Center(child: Text('이미지 로드 실패: $error'));
+          },
+          onScaleEnd: (context, details, controllerValue) {
+            readerProvider.setScale(controllerValue.scale ?? 1.0);
           },
         );
       },
