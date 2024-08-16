@@ -165,7 +165,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           imageProvider: FileImage(File(readerProvider.pages[index].imagePath)),
           minScale: PhotoViewComputedScale.contained,
           maxScale: PhotoViewComputedScale.covered * 2,
-          initialScale: PhotoViewComputedScale.contained,
+          initialScale: readerProvider.currentScale,
           heroAttributes: PhotoViewHeroAttributes(tag: "page_$index"),
           errorBuilder: (context, error, stackTrace) {
             return Center(child: Text('이미지 로드 실패: $error'));
