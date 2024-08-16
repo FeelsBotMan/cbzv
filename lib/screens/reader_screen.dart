@@ -25,6 +25,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
   double _baseScale = 1.0;
   final double _minScale = 1.0;
   final double _maxScale = 3.0;
+  double _dragStartX = 0.0;
+  bool _isDragging = false;
 
   @override
   void initState() {
@@ -290,6 +292,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
       behavior: HitTestBehavior.opaque,
       onScaleStart: (details) {
         _baseScale = _currentScale;
+        if (details.pointerCount == 1) {
+          _dragStartX = details.localFocalPoint.dx;
+          _isDragging = false;
+        }
       },
       onScaleUpdate: (details) {
         if (details.pointerCount == 2) {
@@ -299,17 +305,21 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 (_baseScale * details.scale).clamp(_minScale, _maxScale);
             readerProvider.setScale(_currentScale);
           });
+        } else if (details.pointerCount == 1) {
+          // Handle horizontal drag for page turning
+          double dragDistance = details.localFocalPoint.dx - _dragStartX;
+          if (!_isDragging && dragDistance.abs() > 50) {
+            _isDragging = true;
+            if (dragDistance > 0) {
+              _changePage(-1);
+            } else {
+              _changePage(1);
+            }
+          }
         }
       },
-      onHorizontalDragEnd: (details) {
-        if (details.primaryVelocity == null) return;
-        if (details.primaryVelocity! > 0) {
-          // Swiped from left to right
-          _changePage(-1);
-        } else if (details.primaryVelocity! < 0) {
-          // Swiped from right to left
-          _changePage(1);
-        }
+      onScaleEnd: (details) {
+        _isDragging = false;
       },
       child: Container(color: Colors.transparent),
     );
