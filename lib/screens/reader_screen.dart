@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -8,7 +9,7 @@ import 'package:cbzv/providers/cbz_providers.dart';
 import 'package:cbzv/models/cbz_model.dart';
 
 class ReaderScreen extends StatefulWidget {
-  const ReaderScreen({Key? key}) : super(key: key);
+  const ReaderScreen({super.key});
 
   @override
   _ReaderScreenState createState() => _ReaderScreenState();
@@ -28,8 +29,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
   late Size _screenSize;
   int _pointerCount = 0;
   double _dragStartX = 0.0;
+  double _dragStartY = 0.0;
   bool _isDragging = false;
   bool _isZooming = false;
+  DateTime? _dragStartTime;
+  double _maxDragDistance = 0.0;
+  final List<Offset> _dragPath = [];
+  static const int _pathSampleRate = 5; // 경로 샘플링 속도
+  static const double _dragThreshold = 50.0;
+  static const Duration _dragTimeThreshold = Duration(milliseconds: 200);
 
   @override
   void initState() {
@@ -229,26 +237,63 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
+  bool _isShortTap() {
+    if (_dragPath.length < 2) return true;
+
+    Offset start = _dragPath.first;
+    Offset end = _dragPath.last;
+    double distance = (end - start).distance;
+
+    Duration tapDuration = DateTime.now().difference(_dragStartTime!);
+
+    return distance < _dragThreshold && tapDuration < _dragTimeThreshold;
+  }
+
   void _handlePointerDown(PointerDownEvent event) {
     _dragStartX = event.position.dx;
+    _dragStartY = event.position.dy;
+    _dragStartTime = DateTime.now();
     _isDragging = false;
     _pointerCount++;
     if (_pointerCount > 1) {
       _isZooming = true;
     }
+    _maxDragDistance = 0.0;
+    _dragPath.clear();
+    _dragPath.add(event.position);
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
-    double dragDistance = event.position.dx - _dragStartX;
-    if (_pointerCount == 1 &&
-        !_isZooming &&
-        !_isDragging &&
-        dragDistance.abs() > 50) {
-      _isDragging = true;
-      if (dragDistance > 0) {
-        _changePage(-1);
-      } else {
-        _changePage(1);
+    if (_pointerCount == 1 && !_isZooming) {
+      Offset currentPosition = event.position;
+      _dragPath.add(currentPosition);
+      if (_dragPath.length > _pathSampleRate) {
+        _dragPath.removeAt(0);
+      }
+
+      double dragDistanceX = currentPosition.dx - _dragStartX;
+      double dragDistanceY = currentPosition.dy - _dragStartY;
+      double currentDragDistance =
+          sqrt(dragDistanceX * dragDistanceX + dragDistanceY * dragDistanceY);
+
+      _maxDragDistance = max(_maxDragDistance, currentDragDistance);
+
+      Duration dragDuration = DateTime.now().difference(_dragStartTime!);
+
+      if (!_isDragging &&
+          dragDuration < _dragTimeThreshold &&
+          _maxDragDistance > _dragThreshold) {
+        _isDragging = true;
+        if (dragDistanceX.abs() > dragDistanceY.abs()) {
+          // Horizontal drag - change page
+          if (dragDistanceX > 0) {
+            _changePage(-1);
+          } else {
+            _changePage(1);
+          }
+        } else {
+          // Vertical drag - you can implement custom behavior here if needed
+        }
       }
     }
   }
@@ -257,15 +302,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _pointerCount--;
     if (_pointerCount == 0) {
       if (!_isDragging && !_isZooming) {
-        final tapPosition = event.position;
-        final screenWidth = _screenSize.width;
+        if (_maxDragDistance < _dragThreshold && _isShortTap()) {
+          final tapPosition = event.position;
+          final screenWidth = _screenSize.width;
 
-        if (tapPosition.dx < screenWidth * 0.2) {
-          _changePage(-1);
-        } else if (tapPosition.dx > screenWidth * 0.8) {
-          _changePage(1);
-        } else {
-          _toggleFullScreen();
+          if (tapPosition.dx < screenWidth * 0.2) {
+            _changePage(-1);
+          } else if (tapPosition.dx > screenWidth * 0.8) {
+            _changePage(1);
+          } else {
+            _toggleFullScreen();
+          }
         }
       }
       _isZooming = false;
