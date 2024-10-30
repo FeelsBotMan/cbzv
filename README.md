@@ -28,7 +28,9 @@ CBZ 뷰어는 CBZ확장자의 만화/이미지 파일을 쉽게 읽을 수 있�
 ### 요구사항
 - Flutter SDK 3.5.0 이상
 - Dart SDK 3.5.0 이상
-- Android Studio 또는 VS Code
+
+### 안드로이드
+- flutter build apk
 
 ## TODO
 - PDF 파일 지원
